@@ -1,20 +1,51 @@
-import tornado.ioloop
-import requests
-from tornado.web import asynchronous
-from tornado.httpclient import AsyncHTTPClient
-import tornado.web
+from datetime import datetime
 import json
+import operator
+import requests
 import sys
+from collections import deque
 
+from tornado.httpclient import AsyncHTTPClient
+from tornado.web import asynchronous
+import tornado.ioloop
+import tornado.web
+
+# globals
 network = {}
-
 n_videos = 1000
+
+video_requests = []
+video_queue = deque(video_requests)
 
 # parameters
 max_results = 25
-pages = 2
+pages = 10
+start_date = 0
+end_date = 0
+completed = False
 
-def related_search(response):
+new_request = False
+n_requests = 0
+
+new_search_key = str(datetime.now())
+
+
+def videos_to_string(net):
+
+    videos = sorted(net.iteritems(), key=operator.itemgetter(1))
+
+    return_str = ''
+    for v, count in videos:
+        new_str = "http://www.youtube.com/video/{}".format(v)
+        return_str += new_str + '\n'
+    return return_str
+
+
+def related_search(response, client, search_key):
+    global n_requests
+    n_requests -= 1
+
+    global new_search_key
 
     if len(network) < n_videos:
 
@@ -22,33 +53,71 @@ def related_search(response):
 
         video_ids = [r['id'] for r in related_result['data']['items']]
         for index, r in enumerate(related_result['data']['items']):
-            print r['id'], " ",
+
+            sys.stdout.write('\b')
+            sys.stdout.flush()
+            sys.stdout.write('  %d videos found\r' % len(network))
+
             if r['id'] in network:
                 network[r['id']] += 1
-            else:
+            elif len(network) < n_videos:
                 network[r['id']] = 1
                 http_client = AsyncHTTPClient()
+                cb = lambda x: related_search(x, client, search_key)
                 http_client.fetch("http://gdata.youtube.com/feeds/api/videos/{}/related?alt=jsonc&v=2".format(r['id']),
-                                  callback=related_search)
+                                  callback=cb)
+                n_requests += 1
 
-    else:
+    elif search_key == new_search_key:
+        global completed
+        if completed == False:
+            completed = True
+
+
+            try:
+                client.write(videos_to_string(network))
+                client.finish()
+            except:
+                client.finish()
+                pass
+
+            sys.stdout.write('\b')
+            sys.stdout.flush()
+            sys.stdout.write('  %d videos found\r' % len(network))
         return
+    else:
+        print "ignoring"
 
 
-def search(keywords):
+
+def search(keywords, client):
     network = {}
+    global n_requests
+
+    global new_search_key
+    new_search_key = str(datetime.now())
+
     search_query = "+".join(keywords)
-    search_query.replace(' ', '+')
+    search_query = search_query.replace(' ', '+')
 
     print "Launching The Spiderman on {0}.".format(search_query)
+    done = False
+
     for start_index in range(1, pages):
-        request_url = "http://gdata.youtube.com/feeds/api/videos?q={0}&orderby=viewCount&alt=jsonc&v=2&max-results={1}&start-index={2}".format(
+
+        sys.stdout.write('\b')
+        sys.stdout.flush()
+        sys.stdout.write('  %d\r' % len(network))
+
+        request_url = "http://gdata.youtube.com/feeds/api/videos?q={0}&orderby=relevance&alt=jsonc&v=2&max-results={1}&start-index={2}".format(
                 search_query,
                 max_results,
-                start_index)
+                start_index*25)
 
         http_client = AsyncHTTPClient()
-        http_client.fetch(request_url, callback=related_search)
+        cb = lambda x: related_search(x, client, new_search_key)
+        http_client.fetch(request_url, callback=cb)
+        n_requests += 1
 
 
 def on_fetch(response):
@@ -65,7 +134,6 @@ def on_fetch(response):
 
 def spider(feed):
 
-    print len(network)
 
     if len(network) < n_videos:
 
@@ -92,6 +160,9 @@ def spider(feed):
 class ResultsHandler(tornado.web.RequestHandler):
     
     def get(self):
+
+        done = False
+
         import operator
 
         videos = sorted(network.iteritems(), key=operator.itemgetter(1))
@@ -107,21 +178,42 @@ class ResultsHandler(tornado.web.RequestHandler):
             new_file.write(entry[0] + ':' + str(entry[1]) + '\n')
         new_file.close()
 
-        return None
+        import json
+        # return json.dumps(videos)
+        return_str = ''
+        for v, count in videos:
+            new_str = "http://www.youtube.com/video/{}".format(v)
+            return_str += new_str + '\n'
+        self.write(return_str)
+
 
 class MainHandler(tornado.web.RequestHandler):
 
     @asynchronous
     def get(self):
 
-        search(['adidas', 'shoes', 'basketball'])
-        return
+        self.flush()
+
+
+        global network
+        network = {}
+
+        global completed
+        completed = False
+
+        query_string = self.get_argument("keywords", None)
+
+        keywords = str(query_string).split(' ')
+
+        completed = False
+        search(keywords, self)
 
 
 application = tornado.web.Application([
     (r"/", MainHandler),
     (r"/results", ResultsHandler)
 ])
+
 
 def handle_request(response):
     if response.error:
