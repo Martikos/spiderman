@@ -223,6 +223,7 @@ def handle_request(response):
 
 
 if __name__ == "__main__":
-    application.listen(8888)
+    import os
+    application.listen(os.environ.get("PORT", 5000))
     tornado.ioloop.IOLoop.instance().start()
 
