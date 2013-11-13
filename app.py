@@ -13,6 +13,9 @@ def results():
 def query():
     print "queried"
 
+    http_client = AsyncHTTPClient()
+    http_client.fetch(request_url, callback=related_search)
+
     return "result"
 
 

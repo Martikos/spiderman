@@ -12,7 +12,7 @@ import tornado.web
 
 # globals
 network = {}
-n_videos = 1000
+n_videos = 100
 
 video_requests = []
 video_queue = deque(video_requests)
@@ -42,6 +42,7 @@ def videos_to_string(net):
 
 
 def related_search(response, client, search_key):
+
     global n_requests
     n_requests -= 1
 
@@ -86,7 +87,7 @@ def related_search(response, client, search_key):
             sys.stdout.write('  %d videos found\r' % len(network))
         return
     else:
-        print "ignoring"
+        pass
 
 
 
@@ -202,6 +203,8 @@ class MainHandler(tornado.web.RequestHandler):
         completed = False
 
         query_string = self.get_argument("keywords", None)
+        global n_videos
+        n_videos = int(self.get_argument("count", 100))
 
         keywords = str(query_string).split(' ')
 
