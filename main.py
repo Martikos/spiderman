@@ -37,7 +37,8 @@ def videos_to_string(net):
     return_str = ''
     for v, count in videos:
         new_str = "http://www.youtube.com/video/{}".format(v)
-        return_str += new_str + '\n'
+        return_str += new_str + ',' + str(count) + '\n'
+        # return_str += new_str + '\n'
     return return_str
 
 
@@ -77,6 +78,7 @@ def related_search(response, client, search_key):
 
             try:
                 client.write(videos_to_string(network))
+                print videos_to_string(network)
                 client.finish()
             except:
                 client.finish()
