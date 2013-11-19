@@ -30,16 +30,52 @@ n_requests = 0
 new_search_key = str(datetime.now())
 
 
+
+
+""" Available functions:
+
+    all posted objects should have the properties:
+    - 'function': specifies the function to be performed.
+    - 'input': input object
+    - 'videos': number of videos to return
+
+    expand: given a seed set of videos, expand to related videos
+
+    'search' object example:
+    {
+        'function': 'search',
+        'input': {
+            'seed': ['adidas', 'basketball', 'shoes']
+        }
+        'count': 1000
+    }
+
+    expand object example:
+    {
+        'function': 'expand',
+        'input': {
+            'seed': ['1928398123', '1289371923', '8912739172']
+        }
+        'count': 1000
+    }
+
+"""
+
+
 def videos_to_string(net):
 
     videos = sorted(net.iteritems(), key=operator.itemgetter(1))
+    import json
+    
+    ll = []
+    for video, count in videos:
+        ll.append({
+            'id': video,
+            'relevancy': count
+        })
 
-    return_str = ''
-    for v, count in videos:
-        new_str = "http://www.youtube.com/video/{}".format(v)
-        return_str += new_str + ',' + str(count) + '\n'
-        # return_str += new_str + '\n'
-    return return_str
+    return str(json.dumps(ll))
+
 
 
 def related_search(response, client, search_key):
@@ -78,7 +114,6 @@ def related_search(response, client, search_key):
 
             try:
                 client.write(videos_to_string(network))
-                print videos_to_string(network)
                 client.finish()
             except:
                 client.finish()
@@ -90,6 +125,46 @@ def related_search(response, client, search_key):
         return
     else:
         pass
+
+
+
+def search_related(video_id, client):
+    network = {}
+
+    global n_requests
+    global new_search_key
+    new_search_key = str(datetime.now())
+
+    http_client = AsyncHTTPClient()
+    cb = lambda x: related_search(x, client, new_search_key)
+    http_client.fetch("http://gdata.youtube.com/feeds/api/videos/{}/related?alt=jsonc&v=2".format(video_id),
+                      callback=cb)
+    n_requests += 1
+
+
+def search_related(video_ids, client):
+    network = {}
+    global n_requests
+
+    global new_search_key
+    new_search_key = str(datetime.now())
+
+    print "Launching The Spiderman on {0}.".format(search_query)
+    done = False
+
+    for video_id in video_ids:
+
+        sys.stdout.write('\b')
+        sys.stdout.flush()
+        sys.stdout.write('  %d\r' % len(network))
+
+        http_client.fetch("http://gdata.youtube.com/feeds/api/videos/{}/related?alt=jsonc&v=2".format(video_id),
+                          callback=cb)
+
+        http_client = AsyncHTTPClient()
+        cb = lambda x: related_search(x, client, new_search_key)
+        http_client.fetch(request_url, callback=cb)
+        n_requests += 1
 
 
 
@@ -163,7 +238,6 @@ def spider(feed):
 class ResultsHandler(tornado.web.RequestHandler):
     
     def get(self):
-
         done = False
 
         import operator
@@ -179,7 +253,7 @@ class ResultsHandler(tornado.web.RequestHandler):
         new_file = open('videos.dict', 'w+')
         for entry in videos:
             new_file.write(entry[0] + ':' + str(entry[1]) + '\n')
-        new_file.close()
+        new_file.close( )
 
         import json
         # return json.dumps(videos)
@@ -190,13 +264,54 @@ class ResultsHandler(tornado.web.RequestHandler):
         self.write(return_str)
 
 
+
 class MainHandler(tornado.web.RequestHandler):
+
+
+    @asynchronous
+    def post(self):
+        from spiderman import *
+        print "POST request"
+
+        post_request = {
+            'function': 'search',
+            'input': {
+                'seed': ['adidas', 'basketball', 'shoes']
+            },
+            'count': 1000
+        }
+
+        function_name = post_request['function']
+
+        handler = Spiderman.get_handler(function_name)
+
+        global tornado_loop
+
+        spiderman = handler(self, post_request, tornado_loop).search()
+
+
+
+        return
+
+
 
     @asynchronous
     def get(self):
+        """Spiders youtube.
+
+        Arguments:
+            keywords: set of keywords seperated by spaces.
+            count: number of related videos you're looking for.
+            video_id: video id to get the related video from, also needs a 'function' 
+                query string parameter.
+            function: by default The Spiderman will create a video set out of 
+                the keywords sent in. If this argument is specified The Spiderman 
+                will expand to look for videos that are related to the videos in 
+                the 'id' query string parameter. Options: video_id, video_ids.
+
+        """
 
         self.flush()
-
 
         global network
         network = {}
@@ -204,14 +319,34 @@ class MainHandler(tornado.web.RequestHandler):
         global completed
         completed = False
 
-        query_string = self.get_argument("keywords", None)
-        global n_videos
-        n_videos = int(self.get_argument("count", 100))
 
-        keywords = str(query_string).split(' ')
+        function = self.get_argument('function', None)
+        print function
+        if function is not None:
+            if function == 'related':
+                video_id = self.get_argument('video_id', None)
+                if video_id is not None:
+                    search_related(video_id, self)
+                return
+            elif function == 'expand':
+                video_ids = self.get_argument('video_ids', None)
+                if video_ids is not None:
+                    video_ids = video_ids.split(' ')
+                    search_expand(video_ids, self)
+                return
 
-        completed = False
-        search(keywords, self)
+
+        else:
+
+            query_string = self.get_argument("keywords", None)
+            
+            global n_videos
+            n_videos = int(self.get_argument("count", 100))
+
+            keywords = str(query_string).split(' ')
+
+            completed = False
+            search(keywords, self)
 
 
 application = tornado.web.Application([
@@ -227,8 +362,12 @@ def handle_request(response):
         print response.body
 
 
+tornado_loop = []
+
 if __name__ == "__main__":
     import os
     application.listen(os.environ.get("PORT", 5000))
-    tornado.ioloop.IOLoop.instance().start()
+    tornado_loop = tornado.ioloop.IOLoop.instance().start()
+
+
 
