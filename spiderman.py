@@ -8,17 +8,8 @@ import sys
 from tornado.httpclient import AsyncHTTPClient
 
 
-def post():
-    post_request = post_request
-
-    function_name = post_request['name']
-
-    handler = Spiderman.get_handler(function_name)
-    spiderman = handler(self, post_request).search()
-
-
-pages = 2
-max_results = 100
+pages = 10
+max_results = 50
 
 
 
@@ -62,51 +53,54 @@ class Spiderman(object):
     def results_json(self):
 
         videos = sorted(self.network.iteritems(), key=operator.itemgetter(1))
+        print videos
 
         ll = []
-        for video, count in videos:
-            ll.append({
-                'id': video,
-                'relevancy': count
-            })
+        for video_id, meta in videos:
+            ll.append('http://www.youtube.com/video/{0}: {1}'.format(video_id, meta['title']))
+            # ll.append({
+            #     'id': video_id,
+            #     'meta': {
+            #         'relevancy': meta['relevancy'],
+            #         'depth': meta['depth']
+            #     }
+            # })
 
-        return str(json.dumps(ll))
 
 
-    def related_search(self, response, request_index):
-        if request_index == self.expected:
-            print "done"
-            print self.network
 
-        self.some_number += 1
-        print 'related search call: ', self.some_number
+        # return str(json.dumps(ll))
+        return ('\n'.join(ll))
+
+
+    def related_search(self, response, depth):
+        self.requests_made -= 1
 
         boom = False
 
         related_videos = json.loads(response.body)
-        video_ids = [r['id'] for r in related_videos['data']['items']]
+        video_ids = [(r['id'], r['title']) for r in related_videos['data']['items']]
 
         related_search = self.related_search
         http_client = AsyncHTTPClient()
 
-        for index, video_id in enumerate(video_ids):
+        for index, (video_id, title) in enumerate(video_ids):
 
             if video_id in self.network:
-                self.network[video_id] += 1
+                self.network[video_id]['relevancy'] += 1
             else:
-                self.network[video_id] = 1
+                self.network[video_id] = {
+                        'relevancy': 1,
+                        'title': title,
+                        'depth': depth
+                }
 
             # if self.requested_videos < self.max_videos\
             #         and len(self.network) < self.max_videos:
-            if self.requested_videos < self.expected:
+            if len(self.network) < self.video_count:
 
-                # Everytime this is called response has 25 videos.
-                self.requested_videos += 1
-                requested_videos = self.requested_videos
-                print self.requested_videos, self.expected
-
-                # print "making request"
-                cb = lambda x: related_search(x, requested_videos)
+                self.requests_made += 1
+                cb = lambda x: related_search(x, depth+1)
                 http_client.fetch("http://gdata.youtube.com/feeds/api/videos/{}/related?alt=jsonc&v=2".format(video_id),
                                   callback=cb)
             else:
@@ -115,66 +109,11 @@ class Spiderman(object):
         if boom == True:
             if self.done == False:
                 self.done = True
-                print len(self.network)
+                self.client.write(self.results_json)
+                self.client.finish()
 
-        if len(self.network) > self.video_count:
+        if self.requests_made == 0 and len(self.network) >= self.video_count:
             print "done"
-
-
-
-        # boom = False
-        # print len(self.network), self.video_count, self.some_number
-
-        # if len(self.network) < self.video_count:
-
-        #     related_result = json.loads(response.body)
-        #     video_ids = [r['id'] for r in related_result['data']['items']]
-
-        #     related_search = self.related_search
-
-        #     cb = lambda x: related_search(x)
-        #     http_client = AsyncHTTPClient()
-
-        #     for index, r in enumerate(related_result['data']['items']):
-
-
-        #         if r['id'] in self.network:
-        #             self.network[r['id']] += 1
-        #         else:
-        #             self.network[r['id']] = 1
-
-        #         if self.some_number < self.video_count:
-        #             self.network[r['id']] = 1
-
-        #             q_s = "http://gdata.youtube.com/feeds/api/videos/{}/related?alt=jsonc&v=2".format(r['id'])
-        #             self.some_number += 25
-        #             http_client.fetch("http://gdata.youtube.com/feeds/api/videos/{}/related?alt=jsonc&v=2".format(r['id']),
-        #                               callback=cb)
-
-        #         else:
-        #             boom = True
-
-        # if boom:
-        #     print len(self.network)
-        #     print "should go in here right?"
-        #     if self.completed == False:
-        #         self.completed = True
-        #         self.related_search = None
-                
-        #         try:
-        #             self.client.write(self.results_json)
-        #             self.client.finish()
-        #         except:
-        #             self.client.finish()
-        #             pass
-
-        #         del self.http_client
-        #     else:
-        #         self.left -= 1
-
-
-        #     return
-
 
     def search():
         return NotImplemented
@@ -189,20 +128,16 @@ class SeedSearch(Spiderman):
 
     def search(self):
 
-        self.some_number = 0
-        self.requested_videos = 0
-        self.left = 0
         self.done = False
+        self.requests_made = 1
 
         self.network = {}
-        from math import pow, ceil, floor, log
-        self.max_videos = pow(25, ceil(log(self.video_count, 25)))
-        self.expected = floor(self.video_count * 1.0 / 25)
 
         # callback function parameters
         search_key = self.search_key = str(datetime.now())
         related_search = self.related_search
         client = self.client
+
         cb = lambda x: related_search(x, 0)
 
         keywords = self.input_object['seed']

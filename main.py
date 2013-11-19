@@ -276,9 +276,9 @@ class MainHandler(tornado.web.RequestHandler):
         post_request = {
             'function': 'search',
             'input': {
-                'seed': ['adidas', 'basketball', 'shoes']
+                'seed': ['beats', 'dr dre', 'headphones', 'noise cancelling']
             },
-            'count': 1000
+            'count': 100
         }
 
         function_name = post_request['function']
