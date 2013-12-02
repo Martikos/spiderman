@@ -271,9 +271,13 @@ class MainHandler(tornado.web.RequestHandler):
     @asynchronous
     def post(self):
         from spiderman import *
+
+        import json
+        post_request = json.loads(self.request.body)
         print "POST request"
 
-        post_request = {
+        # parse POST request
+        new_post_request = {
             'function': 'search',
             'input': {
                 'seed': ['beats', 'dr dre', 'headphones', 'noise cancelling']
@@ -282,6 +286,7 @@ class MainHandler(tornado.web.RequestHandler):
         }
 
         function_name = post_request['function']
+        print function_name
 
         handler = Spiderman.get_handler(function_name)
 
@@ -289,64 +294,12 @@ class MainHandler(tornado.web.RequestHandler):
 
         spiderman = handler(self, post_request, tornado_loop).search()
 
-
-
         return
 
 
-
-    @asynchronous
     def get(self):
-        """Spiders youtube.
+        self.render('index.html', some_var="Hey Marc!")
 
-        Arguments:
-            keywords: set of keywords seperated by spaces.
-            count: number of related videos you're looking for.
-            video_id: video id to get the related video from, also needs a 'function' 
-                query string parameter.
-            function: by default The Spiderman will create a video set out of 
-                the keywords sent in. If this argument is specified The Spiderman 
-                will expand to look for videos that are related to the videos in 
-                the 'id' query string parameter. Options: video_id, video_ids.
-
-        """
-
-        self.flush()
-
-        global network
-        network = {}
-
-        global completed
-        completed = False
-
-
-        function = self.get_argument('function', None)
-        print function
-        if function is not None:
-            if function == 'related':
-                video_id = self.get_argument('video_id', None)
-                if video_id is not None:
-                    search_related(video_id, self)
-                return
-            elif function == 'expand':
-                video_ids = self.get_argument('video_ids', None)
-                if video_ids is not None:
-                    video_ids = video_ids.split(' ')
-                    search_expand(video_ids, self)
-                return
-
-
-        else:
-
-            query_string = self.get_argument("keywords", None)
-            
-            global n_videos
-            n_videos = int(self.get_argument("count", 100))
-
-            keywords = str(query_string).split(' ')
-
-            completed = False
-            search(keywords, self)
 
 
 application = tornado.web.Application([

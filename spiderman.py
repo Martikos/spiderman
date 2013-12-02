@@ -12,8 +12,6 @@ pages = 10
 max_results = 50
 
 
-
-
 class Spiderman(object):
     """Handles the searching.
     """
@@ -21,10 +19,11 @@ class Spiderman(object):
     def __init__(self, client, post_request, tornado_loop):
         self.tornado_loop = tornado_loop
         self.client = client
-        self.video_count = post_request['count']
+        self.video_count = int(post_request['count'])
         self.number_of_requests = 0
-        self.function_name = post_request['function']
+        self.function_name = str(post_request['function'])
         self.input_object = post_request['input']
+        self.identifier = post_request['identifier']
         self.network = {}
         self.completed = False
 
@@ -33,12 +32,14 @@ class Spiderman(object):
     def get_handler(cls, function_name):
         subs = cls.__subclasses__()
         subs.reverse()
+        import pdb; pdb.set_trace()
 
         for sub in subs:
+            print sub.functions
             if sub.can_handle_function(function_name):
                 return sub
-            else:
-                raise Exception("No handler for function: %s" % function_name)
+        else:
+            raise Exception("No handler for function: %s" % function_name)
 
 
     @classmethod
@@ -46,8 +47,24 @@ class Spiderman(object):
         if function_name is None or function_name is '':
             return None
         if hasattr(cls, 'functions'):
+            print cls.functions
             return function_name in cls.functions
 
+
+    def write_to_db(self):
+        from db import Video
+        mongo_videos = []
+
+        videos = sorted(self.network.iteritems(), key=operator.itemgetter(1))
+        for video_id, meta in videos:
+            try:
+                mongo_video = Video(
+                        campaign_id=self.campaign_id,
+                        youtube_id=video_id,
+                        used=True)
+                mongo_video.save()
+            except:
+                pass
 
     @property
     def results_json(self):
@@ -57,7 +74,10 @@ class Spiderman(object):
 
         ll = []
         for video_id, meta in videos:
-            ll.append('http://www.youtube.com/video/{0}: {1}'.format(video_id, meta['title']))
+            try:
+                ll.append('http://www.youtube.com/video/{0}: {1}'.format(video_id, meta['title']))
+            except:
+                pass
             # ll.append({
             #     'id': video_id,
             #     'meta': {
@@ -109,14 +129,47 @@ class Spiderman(object):
         if boom == True:
             if self.done == False:
                 self.done = True
-                self.client.write(self.results_json)
-                self.client.finish()
 
         if self.requests_made == 0 and len(self.network) >= self.video_count:
-            print "done"
+            self.client.write(str(self.results_json))
+            self.client.finish()
+
 
     def search():
         return NotImplemented
+
+
+class ExpandSearch(Spiderman):
+    """Expands youtube video network.
+    """
+
+    functions = 'expand'
+
+    def search(self):
+
+        self.done = False
+        self.requests_made = 1
+        self.network = {}
+
+        # callback function parameters
+        search_key = self.search_key = str(datetime.now())
+        related_search = self.related_search
+        client = self.client
+
+        cb = lambda x: related_search(x, 0)
+
+        video_ids = [str(k) for k in self.input_object['seed']]
+
+        global pages
+        global max_results
+
+        self.http_client = AsyncHTTPClient()
+
+        for video_id in video_ids:
+            self.http_client.fetch("http://gdata.youtube.com/feeds/api/videos/{}/related?alt=jsonc&v=2".format(video_id),
+                              callback=cb)
+
+
 
 
 
@@ -131,8 +184,6 @@ class SeedSearch(Spiderman):
         self.done = False
         self.requests_made = 1
 
-        self.network = {}
-
         # callback function parameters
         search_key = self.search_key = str(datetime.now())
         related_search = self.related_search
@@ -140,7 +191,7 @@ class SeedSearch(Spiderman):
 
         cb = lambda x: related_search(x, 0)
 
-        keywords = self.input_object['seed']
+        keywords = [str(k) for k in self.input_object['seed']]
         search_query = '+'.join(keywords).replace(' ', '+')
 
         global pages
@@ -148,7 +199,6 @@ class SeedSearch(Spiderman):
 
         self.http_client = AsyncHTTPClient()
 
-        # Start crawling
         for start_index in range(1, pages):
             request_url = "http://gdata.youtube.com/feeds/api/videos?q={0}&orderby=relevance&alt=jsonc&v=2&max-results={1}&start-index={2}".format(
                     search_query,
